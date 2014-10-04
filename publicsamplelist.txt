@@ -1,0 +1,13 @@
+2:231861032	/Volumes/Weinstein/Cedars Bams/patient1.bam	/Volumes/Weinstein/Cedars Bams/patient2.bam	/Volumes/Weinstein/Cedars Bams/patient3.bam	/Volumes/Weinstein/Cedars Bams/patient4.bam
+5:145508636	/Volumes/Weinstein/Cedars Bams/patient1.bam			/Volumes/Weinstein/Cedars Bams/patient4.bam
+9:79318375	/Volumes/Weinstein/Cedars Bams/patient1.bam			
+14:72055466				/Volumes/Weinstein/Cedars Bams/patient4.bam
+14:105965037			/Volumes/Weinstein/Cedars Bams/patient3.bam	
+11:94800902	/Volumes/Weinstein/Cedars Bams/patient1.bam			/Volumes/Weinstein/Cedars Bams/patient4.bam
+12:55523586	/Volumes/Weinstein/Cedars Bams/patient1.bam			
+5:79351859				/Volumes/Weinstein/Cedars Bams/patient4.bam
+11:58940187	/Volumes/Weinstein/Cedars Bams/patient1.bam			/Volumes/Weinstein/Cedars Bams/patient4.bam
+10:18937579	/Volumes/Weinstein/Cedars Bams/patient1.bam	/Volumes/Weinstein/Cedars Bams/patient2.bam		/Volumes/Weinstein/Cedars Bams/patient4.bam
+11:60165352	/Volumes/Weinstein/Cedars Bams/patient1.bam	/Volumes/Weinstein/Cedars Bams/patient2.bam	/Volumes/Weinstein/Cedars Bams/patient3.bam	/Volumes/Weinstein/Cedars Bams/patient4.bam
+2:164467542	/Volumes/Weinstein/Cedars Bams/patient1.bam	/Volumes/Weinstein/Cedars Bams/patient2.bam	/Volumes/Weinstein/Cedars Bams/patient3.bam	/Volumes/Weinstein/Cedars Bams/patient4.bam
+14:105417284	/Volumes/Weinstein/Cedars Bams/patient1.bam	/Volumes/Weinstein/Cedars Bams/patient2.bam	/Volumes/Weinstein/Cedars Bams/patient3.bam	/Volumes/Weinstein/Cedars Bams/patient4.bam
