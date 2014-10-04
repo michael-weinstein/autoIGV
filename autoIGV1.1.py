@@ -526,7 +526,7 @@ def main():
                 if not locusarray[i]:  #if the element that should contain a bam file is just a blank 
                     continue #skip everything and go on to the next
                 if not bamfile(locusarray[i]): #checks for a valid bamfile
-                    print('Skipped ' + locusarray[i] + 'on line ' + str(linecount) + ' (locus: ' + locusarray[0] + ') in group photo due to it being missing or not a valid BAM file.')
+                    print('Skipped ' + locusarray[i] + ' on line ' + str(linecount) + ' (locus: ' + locusarray[0] + ') in group photo due to it being missing or not a valid BAM file.')
                     continue
                 if not cmdloadfile(locusarray[i], igv): #tells IGV to load the file
                     print ('Error loading file ' + locusarray[i] + ' in group photo; see previous line for details.  Skipping to next file.')
