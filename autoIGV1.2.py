@@ -543,7 +543,7 @@ def main():
                 if not locusarray[i]:  #if the element that should contain a bam file is just a blank 
                     continue #skip everything and go on to the next
                 if not bamfile(locusarray[i]):
-                    print('Skipped ' + locusarray[i] + 'on line ' + str(linecount) + ' (locus: ' + locusarray[0] + ') due to it being missing or not a valid BAM file.')
+                    print('Skipped ' + locusarray[i] + ' on line ' + str(linecount) + ' (locus: ' + locusarray[0] + ') due to it being missing or not a valid BAM file.')
                     continue
                 if not cmdnew(igv):
                     usage('Failed to communicate with IGV on "new" command for line ' + linecount + '.')
