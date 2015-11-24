@@ -54,7 +54,7 @@ Common questions/problems
 ####It's just not working####
 - Read your error messages to be sure that autoIGV is seeing a valid target list file
 
-- If the program is quitting with a syntax error (especially one showing an error for a *print* statement with **end = ''** involved, you are most likely trying to run this through a python2 interpreter.  Please switch to a python3 interpreter and it should work.
+- If the program is quitting with a syntax error (especially one showing an error for a *print* statement with **end = ''** involved), you are most likely trying to run this through a python2 interpreter.  Please switch to a python3 interpreter and it should work.
 
 - If the program is quitting due it being unable to connect to IGV, please be sure that IGV is currently running on your system.
 
