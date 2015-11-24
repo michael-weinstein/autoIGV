@@ -62,7 +62,7 @@ Common questions/problems
 
 - If you have checked all of that and still have communication errors, please ensure that you do not have any settings on your computer's firewall or iptables that might be interfering with traffic using the loopback interface (and that you have the loopback interface set correctly if you are using an IP address).
 
-- If it is starting to run without trouble, but you are getting some unexpected behavior related to saving files, you probably need to be sure you are running the most current version of IGV.  There is a known bug in older versions where it required a filename to be passed in quotes over the network port, but failed to strip off those quotes.  This can result in things such as files being saved with quotes in their name or the program returning an error that looks something like ** .png' is not a valid file format**.  If you get errors of this kind, please update to the latest version of IGV available from the Broad Institute. 
+- If it is starting to run without trouble, but you are getting some unexpected behavior related to saving files, you may need to update to the most current version of IGV.  There is a known bug in older versions where it required a filename to be passed in quotes over the network port, but failed to strip off those quotes.  This can result in things such as files being saved with quotes in their name or the program returning an error that looks something like ** .png' is not a valid file format**.  If you get errors of this kind, please update to the latest version of IGV available from the Broad Institute. 
 
 ####It quit in the middle with a communication error####
 This is generally caused by one of two things:
