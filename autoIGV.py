@@ -4,13 +4,8 @@ This program is a remote control for IGV.  If you supply a tab-delimited text ta
 a genomic locus and any additional columns on the line specify full paths for bam files, this program will take snapshots
 of the each bam file on the line at the locus listed in the first column (images can be taken all together or individually or both)
 Written and tested on a Mac.  Will likely also work on Linux.  Has not been tested yet on a PC.
-Version 1.1 changes: improved handling of output directories, program now accepts a user defined directory as -d on the commandline
-demarcated a group of default values that users may wish to change at the beginning of the main subroutine, set the new default
-output directory to a subdirectory of where the script is being run.  Avoids pesky permission issues, especially on a shared
-system or resource (previously required a directory in the root).  Improved exception/error handling.  Preferences are now stored
-in their own file.  Multiple preference files can be maintained and the specific one to use can be passed on the command line by
-the user.  
-Copyright 2014, Michael Weinstein, Daniel Cohn laboratory
+Version 1.4: Added the ability to set your imaging mode on the command line so this process can be automated for bash scripting
+Copyright 2015, Michael Weinstein, Daniel Cohn laboratory and UCLA Collaboratory
 This program is free to use but if I don't know that you are using it, please e-mail me to let me know that you are.
 My e-mail address: michael (dot) weinstein (at) ucla (dot) edu
 '''
@@ -24,11 +19,15 @@ def checkargs():  #subroutine for validating commandline arguments
     parser.add_argument ("-g", "--genome", help = "Specify the genome to use.")
     parser.add_argument ("-o", "--host", help = "Specify a host.")
     parser.add_argument ("-r", "--port", help = "Specify a port to use.")
+    parser.add_argument ("-m", "--mode", help = "Specify imaging mode.")
+    parser.add_argument ("-nc", "--nocollapse", help = "Do not collapse images.", action = "store_true")
     args = parser.parse_args()  #puts the arguments into the args object
     directory = args.directory
     genome = args.genome
     host = args.host
     port = args.port
+    mode = args.mode
+    nocollapse = args.nocollapse
     if not directory:
         directory = False   #not a strictly necessary statement, since returning a blank would evaluate to false, but explicit >>> implicit
     prefsfile = args.prefsfile
@@ -40,6 +39,17 @@ def checkargs():  #subroutine for validating commandline arguments
         host = False
     if not port:
         port = False
+    if not mode:
+        mode = False
+    else:
+        try:
+            mode = int(mode)
+        except:
+            usage("Specified imaging mode must be either 1, 2, or 3.")
+            quit()
+        if ((mode != 1) and (mode != 2) and (mode != 3)):
+            usage("Specified imaging mode must be either 1, 2, or 3.")
+            quit()
     if not args.file:  #if the args.file value is null, give an error message and quit the program
         usage("No file specified.") 
         quit()
@@ -47,7 +57,7 @@ def checkargs():  #subroutine for validating commandline arguments
         usage("Could not locate " + args.file + "on this system.") 
         quit()
     else:
-        return (args.file, directory, prefsfile, genome, host, port)  #returns the validated filename and directory to the main program
+        return (args.file, directory, prefsfile, genome, host, port, mode, nocollapse)  #returns the validated filename and directory to the main program
     
 def filenamesfree(directory):  #this subroutine checks if the series of filenames we are likely to need is free
     import os  #imports the library we will need to check filenames in the directory
@@ -83,13 +93,20 @@ def createsavedir(directory):
             return False
         return directory  #and returns the directory name to the main subroutine
     
-def clean(line):  #this subroutine cleans up the line and makes sure it looks somewhat usable (starts with a genomic locus followed by a tab)
+def clean(line, badbams):  #this subroutine cleans up the line and makes sure it looks somewhat usable (starts with a genomic locus followed by a tab)
     import re  #we need this library to do a regex
     line = line.strip('\r\n\t ') #removes any leading or trailing endlines, spaces, and tabs
     line = re.sub('^chr', '', line) #removes a "chr" from the beginning of the line (before the chromosome number).  That will be added later and will prevent it from causing problems later
-    if not re.match('1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|X|x|Y|y|mt|MT|Mt\:\d+?]+?\t.+$',line): #the actual regex looking to see if the line starts with a chromosome, then a colon, then a number, then a tab (which will begin the file path list)
+    line = line.split('\t')
+    if not wellformed(line[0]):
         return False #if the line does not match that pattern, the subroutine returns the boolean value False to the main subroutine
-    return line #otherwise it returns the cleaned line
+    cleanline = [] #initialize an empty array for our clean line
+    cleanline.append(line[0])
+    for i in range(1, len(line)):
+        line[i] = line[i].strip('\r\n\t ')
+        if line[i] and line[i] not in badbams:
+            cleanline.append(line[i])
+    return cleanline #otherwise it returns the cleaned line (with only 1 element if no good bams were specified)
 
 def usage(sin):  #This subroutine prints directions
     print ('Error: ' + sin)
@@ -98,6 +115,8 @@ def usage(sin):  #This subroutine prints directions
     print ('of the one containing this script called /autoIGVimages/IGVimages.YYYYMMDDHHMM (YearMonthDayHourMinue).')
     print ('Sample commandline:\npython3 autoIGV.py -f file.txt -d /directory/subdirectory')
     print ('The -f (file) is a necessary commandline argument.  The -d (directory) is optional, as this script has a default.')
+    print ('The -m argument can be used to automate the runs (such as for a bash script) and can take an argument of 1, 2, or 3.')
+    print ('\t1. All files at once for the line.\n\t2. One file at a time at each locus.\n\t3. Both.')
     
 def connect(host, port):  #this subroutine creates the connection between the script and IGV
     import socket  #the library needed for the low-level network connection
@@ -119,7 +138,7 @@ def connect(host, port):  #this subroutine creates the connection between the sc
         quit('Connection with IGV lost.  Please confirm that IGV is still running properly.')
     except:
         quit('Unexpected error sending test message to IGV.')
-    await(igv, 'echo')  #waits for and checks the IGV response
+    awaitIGVResponse(igv, 'echo')  #waits for and checks the IGV response
     print ('OK')
     return igv #returns the new and active socket connection
 
@@ -131,7 +150,7 @@ def cmdnew(igv):  #subroutine to tell IGV to clear its display and start a new s
         quit('Connection with IGV lost.  Please confirm that IGV is still running properly.')
     except:
         quit('Unexpected error sending NEW command to IGV.')
-    success = await(igv) #wait for acknowledgement from IGV that it is done and there were no errors returned
+    success = awaitIGVResponse(igv) #wait for acknowledgement from IGV that it is done and there were no errors returned
     if success:
         return True
     else:
@@ -151,7 +170,7 @@ def cmdgenome(genomeid, igv): #tells IGV which genome to use
         quit('Connection with IGV lost.  Please confirm that IGV is still running properly.')
     except:
         quit('Unexpected error sending GENOMEID command to IGV.')
-    success = await(igv)  #wait for acknowledgement
+    success = awaitIGVResponse(igv)  #wait for acknowledgement
     if success:
         return True
     else:
@@ -165,35 +184,38 @@ def cmdgotolocus(locus, igv):
         quit('Connection with IGV lost.  Please confirm that IGV is still running properly.')
     except:
         quit('Unexpected error sending GOTO command to IGV.')
-    success = await(igv) #wait for acknowledgement from IGV that it is done and there were no errors returned
+    success = awaitIGVResponse(igv) #wait for acknowledgement from IGV that it is done and there were no errors returned
     if success:
         return True
     else:
         return False
 
-def cmdsaveimage(source, locus, igv):
+def cmdsaveimage(source, locus, igv, nocollapse):
     import socket
     import re
     import ntpath
-    try:
-        igv.send(rawbytes('collapse\n')) #tells IGV to collapse the image so we can fit it better in the photo
-    except BrokenPipeError:
-        quit('Connection with IGV lost.  Please confirm that IGV is still running properly.')
-    except:
-        quit('Unexpected error sending COLLAPSE command to IGV.')
-    success = await(igv) #wait for acknowledgement from IGV that it is done and there were no errors returned
-    if not success:
-        return False
+    if not nocollapse:
+        try:
+            igv.send(rawbytes('collapse\n')) #tells IGV to collapse the image so we can fit it better in the photo
+        except BrokenPipeError:
+            quit('Connection with IGV lost.  Please confirm that IGV is still running properly.')
+        except:
+            quit('Unexpected error sending COLLAPSE command to IGV.')
+        success = awaitIGVResponse(igv) #wait for acknowledgement from IGV that it is done and there were no errors returned
+        if not success:
+            return False
     cleansource = re.sub('\\ ', ' ', source)
     cleanlocus = re.sub('\:', 'c', locus)
     filename = ntpath.basename(cleansource)
+    filename = cleanlocus + filename
+    #filename = re.sub(' ', '_', filename)  #temporary workaround for filenames with whitespace, should be fixed by quoting filenames.  this line can be deleted once the fix is confirmed.  Fix should be applied in IGV 2.3.37
     try:
-        igv.send(rawbytes('snapshot ' + cleanlocus + '.' + filename + '.png\n')) #the actual command telling IGV
+        igv.send(rawbytes('snapshot \"' + filename + '.png\"\n')) #the actual command telling IGV to snap the photo
     except BrokenPipeError:
         quit('Connection with IGV lost.  Please confirm that IGV is still running properly.')
     except:
         quit('Unexpected error sending SNAPSHOT command to IGV.')
-    success = await(igv) #wait for acknowledgement from IGV that it is done and there were no errors returned
+    success = awaitIGVResponse(igv) #wait for acknowledgement from IGV that it is done and there were no errors returned
     if success:
         return True
     else:
@@ -210,13 +232,13 @@ def cmdloadfile(filename, igv):  #converts the filename to url format (easier fo
         quit('Connection with IGV lost.  Please confirm that IGV is still running properly.')
     except:
         quit('Unexpected error sending LOAD command to IGV.')
-    success = await(igv) #wait for acknowledgement from IGV that it is done and there were no errors returned
-    if success:  #note that if IGV returns an error here opening the file, we will know it by this subroutine returning a "False" value.  If I wanted to make it slightly more efficient (but harder to understand), I could have replaced the 5 lines starting with "success = await(igv)" with the single line "return await(igv)"
+    success = awaitIGVResponse(igv) #wait for acknowledgement from IGV that it is done and there were no errors returned
+    if success:  #note that if IGV returns an error here opening the file, we will know it by this subroutine returning a "False" value.  If I wanted to make it slightly more efficient (but harder to understand), I could have replaced the 5 lines starting with "success = awaitIGVResponse(igv)" with the single line "return awaitIGVResponse(igv)"
         return True
     else:
         return False
 
-def await(igv, expectedresponse = ''):  #the second argument here is optional, and is only going to be supplied if the goal is to get a specific response from IVG (probably echo).  IGV usually responds "OK" when a command is completed or with Error:(Message) when a command fails.
+def awaitIGVResponse(igv, expectedresponse =''):  #the second argument here is optional, and is only going to be supplied if the goal is to get a specific response from IVG (probably echo).  IGV usually responds "OK" when a command is completed or with Error:(Message) when a command fails.
     import socket
     import re
     try:  #the following statement could generate an exception, so we are preparing to handle it
@@ -243,7 +265,6 @@ def await(igv, expectedresponse = ''):  #the second argument here is optional, a
             errormessage = re.search('^ERROR\W*?(\w+?)', response, re.IGNORECASE)  #uses a regex to capture any error messages returned
             errormessage = errormessage.string.strip('\t\r\n')  #remove any leading or trailing tabs or end of lines
             print ('\nIGV returned the message:' + errormessage)
-            print ('when trying to carry out the previous step')
             return False
         else:
             print('Possible error: IGV says "' + response + '."')
@@ -271,30 +292,32 @@ def wellformed(locus):  #subroutine to make sure that the locus looks like a loc
     import re
     foundlocus = re.match('(1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|X|x|Y|y|mt|MT|Mt)(\:\d+)', locus)  #a regex that will capture a cromosome (1-22 or X or Y or mt)
     if foundlocus:  #if it found something that looked like a locus
-        return (True, foundlocus.group())  #returns true for a successful run and a string with the locus itself (now cleaned up)
+        return (True)  #returns true for a successful run and a string with the locus itself (now cleaned up)
     else:
-        return (False, 'Malformed')
+        return (False)
 
-def multibamlist(list):  #function for looking through several lines to see if they have multiple bam files listed
+def multibamlist(list, badbams):  #function for looking through several lines to see if they have multiple bam files listed
     for line in list: #creates a loop throught he lines
-        if multibam(line): #runs the multibam test for each line individually
+        line = line.split('\t')
+        if multibam(line, badbams, True): #runs the multibam test for each line individually
             return True  #returns true if any of them are multibams
     else:
         return False #returns false if none of them are
 
-def multibam(line):  #function for testing a single line to see if multiple valid bam files are listed
+def multibam(line, badbams, testonly = False):  #function for testing a single line to see if multiple valid bam files are listed
     bamfiles = 0  
-    linearray = line.split('\t') #splits the line on each tab
-    for i in range(0,len(linearray)):  #sets up a loop to iterate through the elements on the line
+    for i in range(0,len(line)):  #sets up a loop to iterate through the elements on the line
         if i == 0:  #if we are looking at the first element (should be a genomic locus)
-            if clean(linearray[i]): #check to see if the locus is clean
-                continue  #if so, move on to the next iteration to check bam file paths
-            else:  #if the locus appears malformed or otherwise bogus
-                bamfiles = 0  #sets the number of bamfiles for the line to zero (even if there are valid files listed, we have nothing to look at without a valid locus)
-                break  #end this loop entirely and move on to the next block of code
+            if testonly: #this block is only engaged when we are parsing the whole file at once to determine if there are any line with multiple bam files.  During the actual run, bad loci will be handled in the main subroutine in order to return an error message.
+                if wellformed(line[i]): #check to see if the locus is clean
+                    continue  #if so, move on to the next iteration to check bam file paths
+                else:  #if the locus appears malformed or otherwise bogus
+                    bamfiles = 0  #sets the number of bamfiles for the line to zero (even if there are valid files listed, we have nothing to look at without a valid locus)
+                    break  #end this loop entirely and move on to the next block of code
         else:
-            if bamfile(linearray[i]):  #checks to see if the file listed looks like a bam file and actually exists
-                bamfiles += 1 #if so, adds 1 to the count of bamfiles
+            if line[i] not in badbams:
+                if bamfile(line[i]):  #checks to see if the file listed looks like a bam file and actually exists
+                    bamfiles += 1 #if so, adds 1 to the count of bamfiles
         if bamfiles > 1:  #after completing the loop through the elements on the line, if there is more than one valid file listed
             return True #send back a value of True
     return False  #otherwise we return a value of false (this line did not have multiple bam files)
@@ -302,10 +325,11 @@ def multibam(line):  #function for testing a single line to see if multiple vali
 def getphotoprefs():
     answer = False
     while not answer:  #enters the loop and stays in it until a valid answer is given
-        print ('\nAt least one line has multiple BAM files listed.\nHow would you like your snapshots?\n\t1. All files at once for the line.\n\t2. One file at a time at each locus.\n\t3. Both.')
+        print ('At least one line has multiple BAM files listed.\n\nHow would you like your snapshots?\n\t1. All files at once for the line.\n\t2. One file at a time at each locus.\n\t3. Both.')
         answer = input('>>') #sets answer equal to some value input by the user
         answer = str(answer)
         if answer == '1' or answer == '2' or answer == '3':
+            print('OK')
             return answer
         else:
             print('Invalid response.')
@@ -318,12 +342,12 @@ def cmdsetimagedirectory(directory, igv):
         cwd = os.getcwd()  #if a relative directory is being used, this gets the current working directory (CWD)
         directory = cwd + '/' + directory  #and adds it to the relative directory we have been using because IGV does not know what the working directory is (and will become very cross with us for passing a bogus directory here)
     try:
-        igv.send(rawbytes('snapshotDirectory ' + directory + '\n'))  #tells IGV where to save the snapshot  CAN THIS BE MOVED OUT OF THE LOOP AND SET ONCE FOR EFFICIENCY (DOES IGV REMEMBER THE DIRECTORY BETWEEN STEPS)?
+        igv.send(rawbytes('snapshotDirectory \"' + directory + '\"\n'))  #tells IGV where to save the snapshot  sends the directory in quotes to avoid errors caused by spaces in the path
     except BrokenPipeError:
         quit('Connection with IGV lost.  Please confirm that IGV is still running properly.')
     except:
         quit('Unexpected error sending SNAPSHOTDIRECTORY command to IGV.')
-    return await(igv)  #this is another (more efficient) way of ending my subroutines.  Functionally, this is the same as my usual endings using the "success" variable
+    return awaitIGVResponse(igv)  #this is another (more efficient) way of ending my subroutines.  Functionally, this is the same as my usual endings using the "success" variable
 
 def yesanswer(question):  #asks the question passed in and returns True if the answer is yes, False if the answer is no, and keeps the user in a loop until one of those is given.  Also useful for walking students through basic logical python functions
     answer = False  #initializes the answer variable to false.  Not absolutely necessary, since it should be undefined at this point and test to false, but explicit is always better than implicit
@@ -437,7 +461,8 @@ def makeprefsfile(prefsfile):  #makes a new preferences file if the old one was 
 def main():
     stackshot = False #initializing a variable for how the user wants photographs taken
     singleshot = False #initializing another variable for another way the user might want photographs taken (at least one of these will be set to true before we start imaging)
-    print ('\nInitializing:')
+    badbams = [] #initializes an empty list for storing bam files that didn't open successfully (we can skip even trying to open them again during the program to save time)
+    print ('\nPLEASE SET YOUR SYSTEM NOT TO SLEEP IF THIS WILL BE A LONG RUN, AS SLEEP MODE WILL INTERRUPT IT.\nInitializing:')
     import time  #this module lets us determine how long the run took (it is used only once at the very start and once at the very end of the program)
     starttime = time.time() #mark the start time
     args = checkargs() #get the list of loci and bam files from the commandline arguments, takes a user-specified directory as an optional argument (returned as False if none was given).  DOES NOT CHECK VALIDITY OF THE DIRECTORY, ONLY THE INPUT FILE.  Check the directory at time of creation.
@@ -447,6 +472,8 @@ def main():
     genome = args[3]
     host = args[4]
     port = args[5]
+    mode = args[6]
+    nocollapse = args[7]
     print ('Loading preferences...', end = '')
     prefs = loadprefs(prefsfile)
     print('PREFERENCES LOADED')
@@ -484,8 +511,12 @@ def main():
         igv.close()
         quit()
     print ('OK\nChecking the list of targets...', end = '')
-    if multibamlist(locuslist): #checks to see if any of the lines in the locus list have multiple valid bam files listed.  If so, runs the next block to find out how the user wants them photographed
-        photoprefs = getphotoprefs()  #runs a subroutine to ask the user what they want to do for photos of multiple BAM files at a single locus
+    if multibamlist(locuslist, badbams): #checks to see if any of the lines in the locus list have multiple valid bam files listed.  If so, runs the next block to find out how the user wants them photographed
+        if mode:
+            photoprefs = str(mode)
+            print("OK\nImaging mode " + photoprefs + " set in arguments.")
+        else:
+            photoprefs = getphotoprefs()  #runs a subroutine to ask the user what they want to do for photos of multiple BAM files at a single locus
         if photoprefs == '1':
             stackshot = True
         if photoprefs == '2':
@@ -493,30 +524,27 @@ def main():
         if photoprefs == '3':
             stackshot = True
             singleshot = True
-        print ('\nInitialization complete.\nStarting the run: \n')
+        print ('\nInitialization complete.\nStarting the run:')
     else: #if the multibamlist function returns false because each line only has a single valid bam file listed, this will set it to just shoot single bams at each locus (this will be done silently as far as the user goes)
         singleshot = True
-        print ('OK\nInitialization complete.\nStarting the run: \n')
+        print ('OK\nInitialization complete.\nStarting the run:')
     linecount = 0  #initializes a variable to count our line number (used for informing the user of progress)
     for locus in locuslist:
         linecount += 1  #increments the line counter
+        firstshot = False  #initialize the Firstshot value to false
         if not locus: #if the line is blank, ignore it entirely 
             continue
-        locus = locus.rstrip('\r\n\t') #removes any potentially troublesome characters (leading and trailing returns, tabs, and newlines) from the line
-        locusarray = locus.split('\t') #splits the line into an array on each tab.  The first element should be the locus and any subsequent elements should be bam file paths
-        locus = clean(locus)  #cleans up the line and verifies that it starts with a valid locus followed by a tab and then some additional characters (should be bam file paths).  Also removes a chr at the beginning of the locus (if there is one).  It will be added back in the process of sending it to IGV, as IGV seems to prefer it that way.
-        if not locus:  #if clean returned a value of false due to a problem with the line
-            print('Skipped line ' + str(linecount) + ': ' + locusarray[0] + ' as the line in ' + locusfile + ' appears to have formatting errors.')
+        locusarray = clean(locus, badbams)
+        if not locusarray:  #if clean returned a value of false due to a problem with the line
+            print('Skipped line ' + str(linecount) + ' as it does not contain a valid locus.')
             continue
-        locusform = wellformed(locusarray[0])  #checks the locus itself to make sure it is properly formatted
-        if not locusform[0]:  #if it returns a False due to a problem with the locus
-            print('Skipped line ' + str(linecount) + ': ' + locusarray[0] + ' in file ' + locusarray[1] + ' as the locus appears to be malformed.')
+        if len(locusarray) == 1:
+            print('Skipped line ' + str(linecount) + ' (locus ' + locusarray[0] + ') as no valid BAM files were specified for it.')
             continue
-        locusarray[0] = locusform[1]  #sets the locus value we will be using to the one returned by the form-checking function
         if not cmdgotolocus(locusarray[0], igv): #We can have this here because IGV will keep the previous locus after a "new" command.  If it stops doing this, we have to move this call inside the inner loop and use a "break" command instead of a "continue". This subroutine will return a value of True if it executes successfully and gets no error message from IGV
                 print ('Error loading going to locus ' + locusarray[0] + ' see previous line for details.  Skipping to next locus.')  #so if false is returned, it will display an error message and try the next locus
                 continue #moves on to the next locus by forcing the loop to iterate without doing anything more 
-        if stackshot and (multibam(locus) or not singleshot):  #if the user selected to get group photos of multiple bam files at each locus it will do this (if the user selected both multi and single image outputs and the line only had a single valid bam file, this will be skipped as both the multi and single shots would look the same)
+        if stackshot and (multibam(locusarray, badbams) or not singleshot):  #if the user selected to get group photos of multiple bam files at each locus it will do this (if the user selected both multi and single image outputs and the line only had a single valid bam file, this will be skipped as both the multi and single shots would look the same)
             print ('Processing locus ' + str(linecount) + ' of ' + str(len(locuslist)) + ' to take group photo.', end = ' \r')
             if not cmdnew(igv):  #clear the IGV screen
                 usage('Failed to communicate with IGV on "new" command for line ' + linecount + '.')
@@ -525,14 +553,26 @@ def main():
             for i in range(1, len(locusarray)):
                 if not locusarray[i]:  #if the element that should contain a bam file is just a blank 
                     continue #skip everything and go on to the next
+                if locusarray[i] in badbams:  #note that this should not be engaged, as the clean function should keep a previously-known bad bamfile from even getting here
+                    print('Skipped ' + locusarray[i] + ' on line ' + str(linecount) + ' (locus: ' + locusarray[0] + ') in group photo as it could not be opened previously.')
+                    continue
                 if not bamfile(locusarray[i]): #checks for a valid bamfile
+                    badbams.append(locusarray[i])
                     print('Skipped ' + locusarray[i] + ' on line ' + str(linecount) + ' (locus: ' + locusarray[0] + ') in group photo due to it being missing or not a valid BAM file.')
+                    if not yesanswer('Do you want to continue the run?'):
+                        quit('OK. Goodbye.')
                     continue
                 if not cmdloadfile(locusarray[i], igv): #tells IGV to load the file
                     print ('Error loading file ' + locusarray[i] + ' in group photo; see previous line for details.  Skipping to next file.')
+                    badbams.append(locusarray[i])
+                    if not yesanswer('Do you want to continue the run?'):
+                        quit('OK. Goodbye.')
                     continue
-            if not cmdsaveimage('all', locusarray[0], igv):  #tells IGV to shoot the image
-                usage('Error saving snapshot of ' + locusarray[0] + ' in ' + locusarray[i] + ' see previous line for details.\nPlease confirm that the directory /autoIGV/ exists and this script has access to write to it and create subdirectories.')
+                if not firstshot and singleshot:
+                    if cmdsaveimage(locusarray[i], locusarray[0], igv, nocollapse):
+                        firstshot = True                       
+            if not cmdsaveimage('all', locusarray[0], igv, nocollapse):  #tells IGV to shoot the image
+                usage('Problem saving snapshot of ' + locusarray[0] + ' in ' + locusarray[i] + ' see previous line for details.\nPlease confirm that the directory /autoIGV/ exists and this script has access to write to it and create subdirectories.  Also try removing any non-word characters or whitespaces from your bam file name.')
                 igv.close()
                 quit()
         if singleshot:        
@@ -540,8 +580,17 @@ def main():
                 print ('Processing locus ' + str(linecount) + ' of ' + str(len(locuslist)) + ' file number ' + str(i) + ' of ' + str(len(locusarray)-1) + '.', end = ' \r')
                 if not locusarray[i]:  #if the element that should contain a bam file is just a blank 
                     continue #skip everything and go on to the next
+                if locusarray[i] in badbams:
+                    print('Skipped ' + locusarray[i] + ' on line ' + str(linecount) + ' (locus: ' + locusarray[0] + ') for single photo as it could not be opened previously.')
+                    continue
                 if not bamfile(locusarray[i]):
-                    print('Skipped ' + locusarray[i] + 'on line ' + str(linecount) + ' (locus: ' + locusarray[0] + ') due to it being missing or not a valid BAM file.')
+                    print('Skipped ' + locusarray[i] + ' on line ' + str(linecount) + ' (locus: ' + locusarray[0] + ') due to it being missing or not a valid BAM file.')
+                    badbams.append(locusarray[i])
+                    if not yesanswer('Do you want to continue the run?'):
+                        quit('OK. Goodbye.')
+                    continue
+                if firstshot:
+                    firstshot = False
                     continue
                 if not cmdnew(igv):
                     usage('Failed to communicate with IGV on "new" command for line ' + linecount + '.')
@@ -549,12 +598,15 @@ def main():
                     quit()
                 if not cmdloadfile(locusarray[i], igv):
                     print ('Error loading file ' + locusarray[i] + ' see previous line for details.  Skipping to next file.')
+                    badbams.append(locusarray[i])
+                    if not yesanswer('Do you want to continue the run?'):
+                        quit('OK. Goodbye.')
                     continue
-                if not cmdsaveimage(locusarray[i], locusarray[0], igv):
-                    usage('Error saving snapshot of ' + locusarray[0] + ' in ' + locusarray[i] + ' see previous line for details.\nPlease confirm that the directory /autoIGV/ exists and this script has access to write to it and create subdirectories.')
+                if not cmdsaveimage(locusarray[i], locusarray[0], igv, nocollapse):
+                    usage('Problem saving snapshot of ' + locusarray[0] + ' in ' + locusarray[i] + ' see previous line for details.\nPlease confirm that the directory /autoIGV/ exists and this script has access to write to it and create subdirectories.')
                     igv.close()
                     quit()
-    print ('Run completed successfully in ' + str(round(time.time() - starttime, 1)) + ' seconds.\nClosing connection with IGV...', end = '')
+    print ('\nRun completed successfully in ' + str(round(time.time() - starttime, 1)) + ' seconds.\nClosing connection with IGV...', end = '')
     igv.close()  #close the connection to IGV when done
     print ('OK\nImages saved to ' + directory + '\nGoodbye.')
     quit()
